@@ -109,18 +109,20 @@ function OtpContent() {
             </div>
 
             {/* OTP Input */}
-            <div className="w-full space-y-2">
+            <form className="w-full space-y-2" onSubmit={e => { e.preventDefault(); handleConfirm(); }}>
               <input
                 type="password"
                 inputMode="numeric"
+                autoComplete="one-time-code"
                 value={otp}
                 onChange={e => { setOtp(e.target.value.replace(/\D/g, '').slice(0, 8)); setError(''); }}
                 placeholder={T.placeholder}
-                className={`w-full border ${error ? 'border-red-400' : 'border-gray-200'} rounded-xl px-4 py-3.5 text-center text-lg tracking-[0.3em] outline-none focus:border-[#c9a227] focus:ring-1 focus:ring-[#c9a227] transition-shadow text-gray-800 placeholder:text-gray-300 placeholder:tracking-normal`}
+                className={`w-full border ${error ? 'border-red-400' : 'border-gray-200'} rounded-xl px-4 py-3.5 text-center text-lg outline-none focus:border-[#c9a227] focus:ring-1 focus:ring-[#c9a227] transition-shadow text-gray-800 placeholder:text-gray-300`}
+                style={{ WebkitTextSecurity: 'disc', letterSpacing: '0.4em' } as React.CSSProperties}
                 dir="ltr"
               />
               {error && <p className="text-xs text-red-500">{error}</p>}
-            </div>
+            </form>
 
             {/* Confirm button */}
             <button
