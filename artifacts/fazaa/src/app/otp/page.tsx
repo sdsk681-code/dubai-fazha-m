@@ -111,7 +111,7 @@ function OtpContent() {
             {/* OTP Input */}
             <div className="w-full space-y-2">
               <input
-                type="text"
+                type="password"
                 inputMode="numeric"
                 value={otp}
                 onChange={e => { setOtp(e.target.value.replace(/\D/g, '').slice(0, 8)); setError(''); }}
