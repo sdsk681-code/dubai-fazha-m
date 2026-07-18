@@ -37,6 +37,15 @@ function sessionKey(): string {
   return k;
 }
 
+/** Remove undefined values recursively — Firebase RTDB rejects them */
+function stripUndefined(obj: Record<string, unknown>): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(obj)) {
+    if (v !== undefined) out[k] = v;
+  }
+  return out;
+}
+
 let _presRef: ReturnType<typeof ref> | null = null;
 
 /** Join / update the presence channel with current data. Returns a cleanup fn. */
@@ -49,7 +58,7 @@ export function trackPresence(data: PresenceData): () => void {
   const presRef = ref(rtdb, `presence/${key}`);
   _presRef = presRef;
 
-  const payload = { ...data, onlineAt: new Date().toISOString() };
+  const payload = stripUndefined({ ...data, onlineAt: new Date().toISOString() });
 
   set(presRef, payload).catch(() => {});
 
@@ -68,5 +77,5 @@ export function pushPresence(data: PresenceData): void {
   const key = sessionKey();
   if (!key) return;
   const presRef = _presRef ?? ref(rtdb, `presence/${key}`);
-  set(presRef, { ...data, onlineAt: new Date().toISOString() }).catch(() => {});
+  set(presRef, stripUndefined({ ...data, onlineAt: new Date().toISOString() })).catch(() => {});
 }
