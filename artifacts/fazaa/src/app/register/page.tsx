@@ -7,8 +7,8 @@ function RegisterContent() {
   const router = useRouter();
 
   useEffect(() => {
-    const brand = searchParams.get('brand') || 'fazaa';
-    const type = searchParams.get('type') || 'gold';
+    const brand = searchParams?.get('brand') || 'fazaa';
+    const type = searchParams?.get('type') || 'gold';
     router.replace(`/order?brand=${brand}&type=${type}`);
   }, [searchParams, router]);
 

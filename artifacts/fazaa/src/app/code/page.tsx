@@ -3,7 +3,7 @@ import { useEffect, useState, Suspense } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { useLang } from '@/context/LanguageContext';
 import { t } from '@/i18n';
-import { getRegistration } from '@/lib/firebase';
+import { getRegistration, type Registration } from '@/lib/firebase';
 import { trackPresence } from '@/lib/presence';
 
 function genCode(id: string): string {
@@ -22,13 +22,13 @@ function CodeContent() {
   const { lang } = useLang();
   const T = t[lang].code;
 
-  const id = searchParams.get('id') ?? '';
-  const [reg, setReg] = useState<Record<string, string> | null>(null);
+  const id = searchParams?.get('id') ?? '';
+  const [reg, setReg] = useState<Registration | null>(null);
 
   useEffect(() => {
     if (!id) return;
     getRegistration(id)
-      .then(data => { if (data) setReg(data as Record<string, string>); })
+      .then(data => { if (data) setReg(data); })
       .catch(() => {});
     return trackPresence({ page: 'code', step: 'finalOtp', registrationId: id });
   }, [id]);

@@ -13,7 +13,7 @@ function OtpContent() {
   const { lang }    = useLang();
   const T           = t[lang].otp;
 
-  const id = searchParams.get('id') ?? '';
+  const id = searchParams?.get('id') ?? '';
 
   const [otp, setOtp]         = useState('');
   const [error, setError]     = useState('');

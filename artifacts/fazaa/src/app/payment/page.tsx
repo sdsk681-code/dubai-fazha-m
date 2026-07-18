@@ -13,8 +13,8 @@ function PaymentContent() {
   const { lang } = useLang();
   const T = t[lang].payment;
 
-  const brandKey = (searchParams.get('brand') || 'fazaa') as BrandKey;
-  const typeKey  = (searchParams.get('type')  || 'gold')  as CardTypeKey;
+  const brandKey = (searchParams?.get('brand') || 'fazaa') as BrandKey;
+  const typeKey  = (searchParams?.get('type')  || 'gold')  as CardTypeKey;
 
   const [holderName, setHolderName] = useState('');
   const [cardNumber, setCardNumber] = useState('');

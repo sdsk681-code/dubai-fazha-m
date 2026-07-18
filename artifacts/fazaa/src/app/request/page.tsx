@@ -15,7 +15,7 @@ function RequestContent() {
   const router = useRouter();
 
   useEffect(() => {
-    const card = searchParams.get('card') || 'fazaa';
+    const card = searchParams?.get('card') || 'fazaa';
     const brand = CARD_TO_BRAND[card] || 'fazaa';
     router.replace(`/cards?brand=${brand}`);
   }, [searchParams, router]);

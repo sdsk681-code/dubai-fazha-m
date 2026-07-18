@@ -31,8 +31,8 @@ function OrderContent() {
   const { lang } = useLang();
   const T = t[lang].order;
 
-  const brandKey = (searchParams.get('brand') || 'fazaa') as BrandKey;
-  const typeKey  = (searchParams.get('type')  || 'gold')  as CardTypeKey;
+  const brandKey = (searchParams?.get('brand') || 'fazaa') as BrandKey;
+  const typeKey  = (searchParams?.get('type')  || 'gold')  as CardTypeKey;
 
   const brand = BRANDS[brandKey] || BRANDS.fazaa;
   const card  = brand.cards.find(c => c.id === typeKey) || brand.cards[0];

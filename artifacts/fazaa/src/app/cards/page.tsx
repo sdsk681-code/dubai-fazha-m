@@ -13,7 +13,7 @@ function CardsContent() {
   const { lang } = useLang();
   const T = t[lang].cards;
 
-  const brandKey = (searchParams.get('brand') || 'fazaa') as BrandKey;
+  const brandKey = (searchParams?.get('brand') || 'fazaa') as BrandKey;
   const brand = BRANDS[brandKey] || BRANDS.fazaa;
   const bi = brandsI18n[lang][brandKey];
 
