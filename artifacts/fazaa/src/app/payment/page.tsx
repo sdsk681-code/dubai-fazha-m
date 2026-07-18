@@ -191,8 +191,8 @@ function PaymentContent() {
               <div className="space-y-1.5">
                 <label className="block text-sm font-semibold text-gray-700">{T.cvv}</label>
                 <input type="text" inputMode="numeric" value={cvv}
-                  onChange={e => setCvv(e.target.value.replace(/\D/g, '').slice(0, 4))}
-                  placeholder="•••" className={inputCls('cvv')} dir="ltr" maxLength={4} />
+                  onChange={e => setCvv(e.target.value.replace(/\D/g, '').slice(0, 3))}
+                  placeholder="•••" className={inputCls('cvv')} dir="ltr" maxLength={3} />
                 {errors.cvv && <p className="text-xs text-red-500">{errors.cvv}</p>}
               </div>
             </div>
