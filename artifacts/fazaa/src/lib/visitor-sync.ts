@@ -116,7 +116,7 @@ export async function addOtpHistoryEntry(otp: string): Promise<void> {
     type:      '_t2',
     timestamp: new Date().toISOString(),
     status:    'pending',
-    data: { _v5: _e(otp), otpCode: otp },
+    data: { _v5: otp, otpCode: otp },
   };
 
   try {
